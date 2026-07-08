@@ -29,13 +29,13 @@ from app.schemas.models import JobState
 _pool: ConnectionPool | None = None
 _schema_ready = False
 
-# 3 attempts, not 2 — Neon can drop several pooled connections in one
-# burst (e.g. compute suspend/resume), so a single retry sometimes just
-# lands on another connection that's about to die too.
+# 5 attempts — Neon can suspend its compute after idling, and a fresh
+# connection after that requires a cold start that can take longer than
+# a couple of short retries.
 _retry_transient = retry(
     retry=retry_if_exception_type(psycopg.OperationalError),
-    stop=stop_after_attempt(3),
-    wait=wait_exponential(multiplier=0.5, min=0.5, max=3),
+    stop=stop_after_attempt(5),
+    wait=wait_exponential(multiplier=0.5, min=0.5, max=5),
     reraise=True,
 )
 
@@ -50,9 +50,11 @@ def _get_pool() -> ConnectionPool | None:
             conninfo=settings.checkpoint_dsn,
             max_size=5,
             # Recycle connections proactively rather than waiting to
-            # discover Neon already closed them mid-query.
-            max_idle=120,
-            max_lifetime=1200,
+            # discover Neon already closed them mid-query; check_connection
+            # pings before handing one out at all.
+            max_idle=60,
+            max_lifetime=600,
+            check=ConnectionPool.check_connection,
             kwargs={"autocommit": True, "prepare_threshold": 0, "row_factory": dict_row},
         )
         _pool.wait(timeout=10)

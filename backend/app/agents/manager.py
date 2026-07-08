@@ -38,8 +38,8 @@ from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_ex
 # lands on another connection that's about to die too.
 _retry_transient_pg = retry(
     retry=retry_if_exception_type(psycopg.OperationalError),
-    stop=stop_after_attempt(3),
-    wait=wait_exponential(multiplier=0.5, min=0.5, max=3),
+    stop=stop_after_attempt(5),
+    wait=wait_exponential(multiplier=0.5, min=0.5, max=5),
     reraise=True,
 )
 
@@ -380,12 +380,15 @@ def _build_checkpointer() -> BaseCheckpointSaver:
         # idle for a while, sometimes in bursts (e.g. compute suspend).
         # Recycling proactively — before the server does it to us — means
         # requests hit a connection we know is fresh instead of finding
-        # out it's dead mid-query.
-        max_idle=120,
-        max_lifetime=1200,
+        # out it's dead mid-query. check_connection pings before handing
+        # a connection out at all, catching most staleness before a query
+        # ever touches it.
+        max_idle=60,
+        max_lifetime=600,
+        check=ConnectionPool.check_connection,
         kwargs={"autocommit": True, "prepare_threshold": 0},
     )
-    _checkpoint_pool.wait(timeout=10)
+    _checkpoint_pool.wait(timeout=15)
     saver = PostgresSaver(_checkpoint_pool)
     saver.setup()  # idempotent — safe to call on every process start
     return _ThreadedCheckpointSaver(saver)
