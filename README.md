@@ -133,6 +133,13 @@ uvicorn app.api.main:app --reload
   decision for one posting; approving resumes the graph into the
   Application Agent for that posting.
 - `GET /api/trace/{trace_id}` — replay the full decision trail for a run.
+- `GET /api/admin/runs`, `GET /api/admin/runs/{session_id}` — every resume
+  run, ATS response, tailored output, and agent decision trace, for
+  internal review. HTTP Basic Auth (`ADMIN_USERNAME`/`ADMIN_PASSWORD`,
+  default `admin`/`123456` — change before deploying anywhere real).
+  Backed by a Postgres `pipeline_runs` table (requires `DATABASE_URL`)
+  independent of the LangGraph checkpoint, so a run's history survives
+  even if the checkpoint store is cleared.
 
 Or with Docker:
 
@@ -155,6 +162,13 @@ npm run dev   # http://localhost:5173, proxies /api to the backend on :8000
 
 Start the backend first (above), then the frontend. No resume handy? The
 landing page has a "Try a sample" link.
+
+### Admin dashboard
+
+`/admin` — sign in with `ADMIN_USERNAME`/`ADMIN_PASSWORD` (default
+`admin`/`123456`) to see every resume run: parsed resume, ATS responses,
+tailored output, and the full agent decision trace, reusing the same
+components as the main app.
 
 ## Tests & evaluation
 

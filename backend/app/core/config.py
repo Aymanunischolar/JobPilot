@@ -46,6 +46,11 @@ class Settings(BaseSettings):
     api_host: str = "0.0.0.0"
     api_port: int = 8000
 
+    # Admin dashboard — HTTP Basic Auth. Override via env in any real
+    # deployment; these are dev-only defaults.
+    admin_username: str = "admin"
+    admin_password: str = "123456"
+
     @property
     def data_dir(self) -> Path:
         p = Path(self.jobpilot_data_dir)

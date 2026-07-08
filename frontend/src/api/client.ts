@@ -1,4 +1,4 @@
-import type { ApprovalDecision, Channel, JobState } from "../types";
+import type { ApprovalDecision, Channel, JobState, RunSummary } from "../types";
 
 const BASE = "/api";
 
@@ -59,5 +59,34 @@ export async function submitApproval(
 
 export async function getTrace(traceId: string): Promise<JobState> {
   const res = await fetch(`${BASE}/trace/${traceId}`);
+  return handle<JobState>(res);
+}
+
+// --- Admin (HTTP Basic Auth) -------------------------------------------
+
+function basicAuthHeader(username: string, password: string): string {
+  return `Basic ${btoa(`${username}:${password}`)}`;
+}
+
+export async function verifyAdminCredentials(username: string, password: string): Promise<void> {
+  const res = await fetch(`${BASE}/admin/runs`, {
+    headers: { Authorization: basicAuthHeader(username, password) },
+  });
+  if (!res.ok) {
+    throw new ApiError(res.status, res.status === 401 ? "Invalid username or password" : res.statusText);
+  }
+}
+
+export async function listAdminRuns(username: string, password: string): Promise<RunSummary[]> {
+  const res = await fetch(`${BASE}/admin/runs`, {
+    headers: { Authorization: basicAuthHeader(username, password) },
+  });
+  return handle<RunSummary[]>(res);
+}
+
+export async function getAdminRun(username: string, password: string, sessionId: string): Promise<JobState> {
+  const res = await fetch(`${BASE}/admin/runs/${sessionId}`, {
+    headers: { Authorization: basicAuthHeader(username, password) },
+  });
   return handle<JobState>(res);
 }

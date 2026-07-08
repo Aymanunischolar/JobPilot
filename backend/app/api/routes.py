@@ -9,6 +9,7 @@ gate into the Application Agent (§6.1).
 
 from __future__ import annotations
 
+import logging
 import uuid
 from pathlib import Path
 
@@ -20,7 +21,11 @@ from app.core.config import get_settings
 from app.core.tracing import load_trace
 from app.schemas.models import ApprovalDecision, Channel, JobState
 
+logger = logging.getLogger("jobpilot")
+
 router = APIRouter()
+
+_MAX_RESUME_BYTES = 10 * 1024 * 1024  # 10MB — generous for a resume, cheap to enforce
 
 
 class ApprovalRequest(BaseModel):
@@ -41,6 +46,10 @@ async def upload_resume(file: UploadFile = File(...)) -> JobState:
 
     settings = get_settings()
     content = await file.read()
+    if len(content) > _MAX_RESUME_BYTES:
+        raise HTTPException(status_code=413, detail="Resume file is too large (10MB limit)")
+    if not content:
+        raise HTTPException(status_code=400, detail="Uploaded file is empty")
 
     session_id = uuid.uuid4().hex[:12]
     resumes_dir = settings.data_dir / "resumes"
@@ -49,16 +58,27 @@ async def upload_resume(file: UploadFile = File(...)) -> JobState:
     resume_path.write_bytes(content)
 
     try:
-        job_state = await run_pipeline(
+        return await run_pipeline(
             resume_bytes=content,
             resume_filename=file.filename,
             thread_id=session_id,
             resume_file_path=str(resume_path),
         )
-    except Exception as exc:  # noqa: BLE001 — surfaced to the client as a 500 with context
-        raise HTTPException(status_code=500, detail=f"Pipeline failed: {exc}") from exc
-
-    return job_state
+    except RuntimeError as exc:
+        # Missing/misconfigured provider keys (job_search.py, ats_scorer.py
+        # LLM fallbacks) surface here as RuntimeError — a config problem,
+        # not a bug, so it's worth a clearer status than a bare 500.
+        logger.warning("Pipeline unavailable for session=%s: %s", session_id, exc)
+        raise HTTPException(
+            status_code=503,
+            detail="A required search/LLM provider is unavailable right now. Please try again shortly.",
+        ) from exc
+    except Exception as exc:  # noqa: BLE001 — boundary: never leak internals to the client
+        logger.exception("Pipeline failed for session=%s", session_id)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Resume processing failed (session {session_id}). Please try again.",
+        ) from exc
 
 
 @router.get("/sessions/{session_id}", response_model=JobState)
@@ -85,8 +105,17 @@ async def submit_approval(session_id: str, body: ApprovalRequest) -> JobState:
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
-    job_state = await resume_after_approval(session_id)
-    return job_state
+    try:
+        return await resume_after_approval(session_id)
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("Resume-after-approval failed for session=%s", session_id)
+        raise HTTPException(
+            status_code=500,
+            detail=(
+                f"Your approval was recorded, but applying it failed (session {session_id}). "
+                "Refresh the session to check status, or try again."
+            ),
+        ) from exc
 
 
 @router.get("/trace/{trace_id}", response_model=JobState)

@@ -120,3 +120,14 @@ export interface JobState {
   escalated: boolean;
   escalation_reason: string | null;
 }
+
+export interface RunSummary {
+  session_id: string;
+  trace_id: string;
+  candidate_name: string | null;
+  current_step: string;
+  escalated: boolean;
+  posting_count: number;
+  created_at: string;
+  updated_at: string;
+}

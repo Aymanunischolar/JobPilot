@@ -31,7 +31,17 @@ import psycopg
 from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, START, StateGraph
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_fixed
+from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
+
+# 3 attempts, not 2 — Neon can drop several pooled connections in one
+# burst (e.g. compute suspend/resume), so a single retry sometimes just
+# lands on another connection that's about to die too.
+_retry_transient_pg = retry(
+    retry=retry_if_exception_type(psycopg.OperationalError),
+    stop=stop_after_attempt(3),
+    wait=wait_exponential(multiplier=0.5, min=0.5, max=3),
+    reraise=True,
+)
 
 from app.agents.application import submit_application
 from app.agents.ats_scorer import score_resume
@@ -40,6 +50,7 @@ from app.agents.job_search import search_jobs
 from app.core.config import get_settings
 from app.agents.resume_parser import parse_resume
 from app.agents.tailor import tailor_resume
+from app.core import admin_store
 from app.core.tracing import agent_span, persist_trace
 from app.schemas.models import (
     ApprovalDecision,
@@ -296,38 +307,23 @@ class _ThreadedCheckpointSaver(BaseCheckpointSaver):
         self._saver = sync_saver
 
     # Neon (and other serverless/managed Postgres) proactively terminates
-    # idle connections. psycopg_pool already detects and evicts a dead
-    # connection the moment it's touched — but the in-flight query riding
-    # on that connection at the moment it died still fails outright. One
-    # retry is enough: by the time we retry, the pool has handed out a
-    # fresh, healthy connection.
-    @retry(
-        retry=retry_if_exception_type(psycopg.OperationalError),
-        stop=stop_after_attempt(2),
-        wait=wait_fixed(0.5),
-        reraise=True,
-    )
+    # idle connections, sometimes several in one burst (e.g. compute
+    # suspend/resume). psycopg_pool detects and evicts a dead connection
+    # the moment it's touched, but the in-flight query riding on it at
+    # that moment still fails outright — retrying gives the pool a chance
+    # to hand back a connection it has already refreshed.
+    @_retry_transient_pg
     def get_tuple(self, config):
         return self._saver.get_tuple(config)
 
     def list(self, config, *, filter=None, before=None, limit=None):
         return self._saver.list(config, filter=filter, before=before, limit=limit)
 
-    @retry(
-        retry=retry_if_exception_type(psycopg.OperationalError),
-        stop=stop_after_attempt(2),
-        wait=wait_fixed(0.5),
-        reraise=True,
-    )
+    @_retry_transient_pg
     def put(self, config, checkpoint, metadata, new_versions):
         return self._saver.put(config, checkpoint, metadata, new_versions)
 
-    @retry(
-        retry=retry_if_exception_type(psycopg.OperationalError),
-        stop=stop_after_attempt(2),
-        wait=wait_fixed(0.5),
-        reraise=True,
-    )
+    @_retry_transient_pg
     def put_writes(self, config, writes, task_id, task_path=""):
         return self._saver.put_writes(config, writes, task_id, task_path)
 
@@ -380,6 +376,13 @@ def _build_checkpointer() -> BaseCheckpointSaver:
     _checkpoint_pool = ConnectionPool(
         conninfo=settings.checkpoint_dsn,
         max_size=10,
+        # Neon (and other serverless Postgres) closes connections that sit
+        # idle for a while, sometimes in bursts (e.g. compute suspend).
+        # Recycling proactively — before the server does it to us — means
+        # requests hit a connection we know is fresh instead of finding
+        # out it's dead mid-query.
+        max_idle=120,
+        max_lifetime=1200,
         kwargs={"autocommit": True, "prepare_threshold": 0},
     )
     _checkpoint_pool.wait(timeout=10)
@@ -472,6 +475,7 @@ async def run_pipeline(
     result = await graph.ainvoke(initial, config=config)
     job_state = result["job_state"]
     persist_trace(job_state)
+    await asyncio.to_thread(admin_store.save_run, job_state)
     return job_state
 
 
@@ -484,6 +488,7 @@ async def resume_after_approval(thread_id: str) -> JobState:
     result = await graph.ainvoke(None, config=config)
     job_state = result["job_state"]
     persist_trace(job_state)
+    await asyncio.to_thread(admin_store.save_run, job_state)
     return job_state
 
 
@@ -530,4 +535,5 @@ async def record_approval(
         decided_at=datetime.now(timezone.utc),
     )
     await graph.aupdate_state(config, {"job_state": job_state})
+    await asyncio.to_thread(admin_store.save_run, job_state)
     return job_state
