@@ -100,6 +100,11 @@ backend/app/
   api/                   FastAPI routes
   eval/                  Evaluation harness + hand-labeled fixtures (§7)
 backend/tests/            pytest unit tests
+frontend/src/
+  api/client.ts           Typed fetch wrapper for the backend
+  types.ts                Mirrors backend/app/schemas/models.py
+  components/             Upload, ATS score ring, tailored-resume diff, approval controls, ...
+  App.tsx                 Screen state machine: landing -> loading -> results
 ```
 
 ## Setup
@@ -135,6 +140,22 @@ Or with Docker:
 docker compose up --build
 ```
 
+## Frontend
+
+A React + TypeScript + Tailwind UI lives in [`frontend/`](frontend/) —
+resume upload, live pipeline progress, ATS score breakdowns, a tailored-
+resume diff view, and the approve/reject controls for the human approval
+gate. See [`frontend/README.md`](frontend/README.md) for details.
+
+```bash
+cd frontend
+npm install
+npm run dev   # http://localhost:5173, proxies /api to the backend on :8000
+```
+
+Start the backend first (above), then the frontend. No resume handy? The
+landing page has a "Try a sample" link.
+
 ## Tests & evaluation
 
 ```bash
@@ -159,8 +180,10 @@ system is used against real postings.
 | LLMs | OpenAI + Gemini, pluggable via `LLM_PROVIDER` |
 | Schema validation | Pydantic |
 | API | FastAPI |
+| Frontend | React + TypeScript + Vite + Tailwind CSS |
 | Browser automation | Playwright |
 | Tracing | OpenTelemetry spans + local trace replay by `trace_id` |
+| Checkpointing | In-memory by default; optional Postgres (any provider, e.g. Neon) via `DATABASE_URL` |
 | Deployment | Docker + GitHub Actions CI |
 
 ## Delivery roadmap

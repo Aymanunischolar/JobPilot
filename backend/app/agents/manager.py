@@ -27,9 +27,11 @@ import asyncio
 from datetime import datetime, timezone
 from typing import Any, AsyncIterator, Optional, TypedDict
 
+import psycopg
 from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, START, StateGraph
+from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_fixed
 
 from app.agents.application import submit_application
 from app.agents.ats_scorer import score_resume
@@ -293,15 +295,39 @@ class _ThreadedCheckpointSaver(BaseCheckpointSaver):
         super().__init__(serde=sync_saver.serde)
         self._saver = sync_saver
 
+    # Neon (and other serverless/managed Postgres) proactively terminates
+    # idle connections. psycopg_pool already detects and evicts a dead
+    # connection the moment it's touched — but the in-flight query riding
+    # on that connection at the moment it died still fails outright. One
+    # retry is enough: by the time we retry, the pool has handed out a
+    # fresh, healthy connection.
+    @retry(
+        retry=retry_if_exception_type(psycopg.OperationalError),
+        stop=stop_after_attempt(2),
+        wait=wait_fixed(0.5),
+        reraise=True,
+    )
     def get_tuple(self, config):
         return self._saver.get_tuple(config)
 
     def list(self, config, *, filter=None, before=None, limit=None):
         return self._saver.list(config, filter=filter, before=before, limit=limit)
 
+    @retry(
+        retry=retry_if_exception_type(psycopg.OperationalError),
+        stop=stop_after_attempt(2),
+        wait=wait_fixed(0.5),
+        reraise=True,
+    )
     def put(self, config, checkpoint, metadata, new_versions):
         return self._saver.put(config, checkpoint, metadata, new_versions)
 
+    @retry(
+        retry=retry_if_exception_type(psycopg.OperationalError),
+        stop=stop_after_attempt(2),
+        wait=wait_fixed(0.5),
+        reraise=True,
+    )
     def put_writes(self, config, writes, task_id, task_path=""):
         return self._saver.put_writes(config, writes, task_id, task_path)
 
