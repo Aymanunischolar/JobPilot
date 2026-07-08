@@ -1,0 +1,9 @@
+[
+  {"ats_score": 82.0, "human_decision": "pass"},
+  {"ats_score": 48.0, "human_decision": "fail"},
+  {"ats_score": 71.0, "human_decision": "pass"},
+  {"ats_score": 69.0, "human_decision": "fail"},
+  {"ats_score": 95.0, "human_decision": "pass"},
+  {"ats_score": 30.0, "human_decision": "fail"},
+  {"ats_score": 74.0, "human_decision": "fail"}
+]

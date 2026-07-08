@@ -1,0 +1,56 @@
+[
+  {
+    "name": "structural_violation_unknown_bullet_id",
+    "resume": {
+      "skills": ["Python"],
+      "roles": [
+        {
+          "title": "Backend Engineer",
+          "company": "Northwind",
+          "bullets": [{"id": "b1", "text": "Built REST APIs serving 2M requests/day", "quantified_metrics": ["2M"]}]
+        }
+      ]
+    },
+    "tailored": {
+      "bullets": [{"source_bullet_id": "b-does-not-exist", "text": "Built REST APIs serving 2M requests/day", "keywords_surfaced": []}],
+      "cover_letter": ""
+    },
+    "expected_status": "failed_structural"
+  },
+  {
+    "name": "faithful_paraphrase",
+    "resume": {
+      "skills": ["Python"],
+      "roles": [
+        {
+          "title": "Backend Engineer",
+          "company": "Northwind",
+          "bullets": [{"id": "b1", "text": "Built REST APIs in Python/FastAPI serving 2M requests/day", "quantified_metrics": ["2M"]}]
+        }
+      ]
+    },
+    "tailored": {
+      "bullets": [{"source_bullet_id": "b1", "text": "Designed and shipped Python/FastAPI REST APIs handling 2M requests/day", "keywords_surfaced": ["FastAPI"]}],
+      "cover_letter": ""
+    },
+    "expected_status": "passed"
+  },
+  {
+    "name": "fabricated_metric",
+    "resume": {
+      "skills": ["Python"],
+      "roles": [
+        {
+          "title": "Backend Engineer",
+          "company": "Northwind",
+          "bullets": [{"id": "b1", "text": "Built REST APIs in Python/FastAPI", "quantified_metrics": []}]
+        }
+      ]
+    },
+    "tailored": {
+      "bullets": [{"source_bullet_id": "b1", "text": "Built REST APIs in Python/FastAPI serving 5M requests/day with 99.99% uptime", "keywords_surfaced": []}],
+      "cover_letter": ""
+    },
+    "expected_status": "failed_semantic"
+  }
+]

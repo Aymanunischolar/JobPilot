@@ -1,0 +1,20 @@
+[
+  {
+    "missing_keywords": ["kubernetes", "grpc", "terraform"],
+    "tailored": {
+      "bullets": [
+        {"source_bullet_id": "b1", "text": "Deployed services to Kubernetes clusters via Terraform-managed infra", "keywords_surfaced": ["kubernetes", "terraform"]}
+      ],
+      "cover_letter": "I have hands-on experience with gRPC service design in prior roles."
+    }
+  },
+  {
+    "missing_keywords": ["snowflake", "airflow"],
+    "tailored": {
+      "bullets": [
+        {"source_bullet_id": "b1", "text": "Built SQL-based reporting pipelines", "keywords_surfaced": []}
+      ],
+      "cover_letter": ""
+    }
+  }
+]

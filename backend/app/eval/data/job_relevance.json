@@ -1,0 +1,58 @@
+[
+  {
+    "resume": {
+      "skills": ["Python", "FastAPI", "PostgreSQL", "Docker", "AWS"],
+      "roles": [{"title": "Backend Engineer", "company": "Northwind", "bullets": []}]
+    },
+    "posting": {
+      "source_url": "https://a.example.com/1",
+      "canonical_url": "https://a.example.com/1",
+      "jd_text": "Backend Engineer, Python, FastAPI, PostgreSQL, AWS, Docker required.",
+      "company": "A Corp",
+      "title": "Backend Engineer"
+    },
+    "human_relevant": true
+  },
+  {
+    "resume": {
+      "skills": ["Python", "FastAPI", "PostgreSQL", "Docker", "AWS"],
+      "roles": [{"title": "Backend Engineer", "company": "Northwind", "bullets": []}]
+    },
+    "posting": {
+      "source_url": "https://b.example.com/2",
+      "canonical_url": "https://b.example.com/2",
+      "jd_text": "Senior Python Platform Engineer — build internal developer tooling, AWS, containers, API design.",
+      "company": "B Corp",
+      "title": "Platform Engineer"
+    },
+    "human_relevant": true
+  },
+  {
+    "resume": {
+      "skills": ["Python", "FastAPI", "PostgreSQL", "Docker", "AWS"],
+      "roles": [{"title": "Backend Engineer", "company": "Northwind", "bullets": []}]
+    },
+    "posting": {
+      "source_url": "https://c.example.com/3",
+      "canonical_url": "https://c.example.com/3",
+      "jd_text": "Registered Nurse needed for busy pediatric clinic. BLS certification required.",
+      "company": "C Health",
+      "title": "Registered Nurse"
+    },
+    "human_relevant": false
+  },
+  {
+    "resume": {
+      "skills": ["Python", "FastAPI", "PostgreSQL", "Docker", "AWS"],
+      "roles": [{"title": "Backend Engineer", "company": "Northwind", "bullets": []}]
+    },
+    "posting": {
+      "source_url": "https://d.example.com/4",
+      "canonical_url": "https://d.example.com/4",
+      "jd_text": "Store associate — retail sales floor, cash register, customer service.",
+      "company": "D Retail",
+      "title": "Retail Associate"
+    },
+    "human_relevant": false
+  }
+]

@@ -1,0 +1,91 @@
+[
+  {
+    "resume": {
+      "full_name": "Jordan Lee",
+      "email": "jordan.lee@example.com",
+      "skills": ["Python", "FastAPI", "PostgreSQL", "Docker", "AWS", "REST APIs"],
+      "roles": [
+        {
+          "title": "Backend Engineer",
+          "company": "Northwind Systems",
+          "start_date": "2021",
+          "end_date": "Present",
+          "bullets": [
+            {"text": "Built and shipped REST APIs in Python/FastAPI serving 2M requests/day", "quantified_metrics": ["2M requests/day"]},
+            {"text": "Migrated monolith to Docker-based microservices on AWS, cutting deploy time 40%", "quantified_metrics": ["40%"]}
+          ]
+        }
+      ],
+      "education": [{"institution": "State University", "degree": "Bachelor", "field_of_study": "Computer Science", "graduation_date": "2020"}],
+      "certifications": [],
+      "raw_text_hash": "fixture-1"
+    },
+    "posting": {
+      "source_url": "https://example-corp.com/careers/backend-engineer",
+      "canonical_url": "https://example-corp.com/careers/backend-engineer",
+      "jd_text": "We are hiring a Backend Engineer with 3+ years of experience in Python and FastAPI, strong knowledge of PostgreSQL, Docker, and AWS. You will build REST APIs and own deployments. Bachelor's degree preferred.",
+      "company": "Example Corp",
+      "title": "Backend Engineer"
+    },
+    "reference_score": 82.0
+  },
+  {
+    "resume": {
+      "full_name": "Priya Nair",
+      "email": "priya.nair@example.com",
+      "skills": ["Python", "Pandas", "SQL", "Tableau"],
+      "roles": [
+        {
+          "title": "Data Analyst",
+          "company": "Acme Retail",
+          "start_date": "2022",
+          "end_date": "Present",
+          "bullets": [
+            {"text": "Built weekly sales dashboards in Tableau used by 20 regional managers", "quantified_metrics": ["20"]},
+            {"text": "Wrote SQL queries to reconcile inventory data across 5 warehouses", "quantified_metrics": ["5"]}
+          ]
+        }
+      ],
+      "education": [{"institution": "City College", "degree": "Bachelor", "field_of_study": "Statistics", "graduation_date": "2021"}],
+      "certifications": [],
+      "raw_text_hash": "fixture-2"
+    },
+    "posting": {
+      "source_url": "https://datawave.io/careers/data-engineer",
+      "canonical_url": "https://datawave.io/careers/data-engineer",
+      "jd_text": "Data Engineer role requiring 4+ years with Python, Airflow, Spark, and cloud data warehouses (Snowflake/BigQuery). SQL required. Experience with ETL pipelines at scale.",
+      "company": "DataWave",
+      "title": "Data Engineer"
+    },
+    "reference_score": 48.0
+  },
+  {
+    "resume": {
+      "full_name": "Sam Rivera",
+      "email": "sam.rivera@example.com",
+      "skills": ["React", "TypeScript", "CSS", "Figma"],
+      "roles": [
+        {
+          "title": "Frontend Developer",
+          "company": "PixelWorks",
+          "start_date": "2020",
+          "end_date": "Present",
+          "bullets": [
+            {"text": "Rebuilt the marketing site in React/TypeScript, improving Lighthouse score from 62 to 94", "quantified_metrics": ["62", "94"]}
+          ]
+        }
+      ],
+      "education": [{"institution": "Design Institute", "degree": "Bachelor", "field_of_study": "Interactive Media", "graduation_date": "2019"}],
+      "certifications": [],
+      "raw_text_hash": "fixture-3"
+    },
+    "posting": {
+      "source_url": "https://cloudsystems.dev/careers/backend-engineer",
+      "canonical_url": "https://cloudsystems.dev/careers/backend-engineer",
+      "jd_text": "Backend Engineer needed with strong Go or Python skills, distributed systems experience, Kubernetes, and gRPC. 5+ years experience.",
+      "company": "CloudSystems",
+      "title": "Backend Engineer"
+    },
+    "reference_score": 18.0
+  }
+]
