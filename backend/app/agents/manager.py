@@ -83,6 +83,20 @@ def _is_borderline(score: float, threshold: float, band: float = ATS_BORDERLINE_
     return abs(score - threshold) <= band
 
 
+def _add_escalation(job_state: JobState, reason: str) -> None:
+    """Flags job_state for human review, appending to any existing
+    escalation reason rather than clobbering it — the pipeline can
+    accumulate more than one reason to look closer (e.g. a low-confidence
+    parse *and* a borderline ATS score), and losing the first one behind
+    the second makes the flag harder to act on."""
+    job_state.escalated = True
+    if job_state.escalation_reason:
+        if reason not in job_state.escalation_reason:
+            job_state.escalation_reason = f"{job_state.escalation_reason}; {reason}"
+    else:
+        job_state.escalation_reason = reason
+
+
 # --------------------------------------------------------------------------
 # Nodes
 # --------------------------------------------------------------------------
@@ -98,9 +112,8 @@ def resume_parser_node(state: GraphState) -> dict:
         job_state.parsed_resume = parsed
         rec["output"] = parsed.model_dump()
         if _is_sparse_parse(job_state):
-            job_state.escalated = True
-            job_state.escalation_reason = (
-                "low-confidence resume parse: few or no roles/skills extracted"
+            _add_escalation(
+                job_state, "low-confidence resume parse: few or no roles/skills extracted"
             )
             rec["decision"] = "escalate"
             rec["rationale"] = job_state.escalation_reason
@@ -141,9 +154,8 @@ def ats_scorer_node(state: GraphState) -> dict:
             rec["rationale"] = result.fit_rationale
 
             if _is_borderline(result.score, 70.0):
-                job_state.escalated = True
-                job_state.escalation_reason = (
-                    f"borderline ATS score ({result.score:.1f}) for posting {posting.id}"
+                _add_escalation(
+                    job_state, f"borderline ATS score ({result.score:.1f}) for posting {posting.id}"
                 )
 
     job_state.current_step = "ats_scored"
@@ -256,8 +268,7 @@ def route_after_ats(state: GraphState) -> str:
         return "tailor"
     if state.get("search_retries", 0) < MAX_SEARCH_RETRIES:
         return "retry_search"
-    job_state.escalated = True
-    job_state.escalation_reason = "no postings passed the ATS gate after retrying search"
+    _add_escalation(job_state, "no postings passed the ATS gate after retrying search")
     return "no_matches"
 
 
@@ -274,10 +285,10 @@ def route_after_qa(state: GraphState) -> str:
     # gate / API layer surfaces to the human as "nothing ready").
     for posting_id, tailored in job_state.tailored.items():
         if tailored.faithfulness_status != FaithfulnessStatus.PASSED:
-            job_state.escalated = True
-            job_state.escalation_reason = (
+            _add_escalation(
+                job_state,
                 f"posting {posting_id} exhausted tailoring retries without passing "
-                f"the faithfulness gate"
+                f"the faithfulness gate",
             )
     return "human_approval"
 

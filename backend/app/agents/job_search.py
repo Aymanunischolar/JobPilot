@@ -12,6 +12,7 @@ aggregators only surfaces once.
 from __future__ import annotations
 
 import re
+from urllib.parse import urlsplit
 
 import numpy as np
 
@@ -118,6 +119,38 @@ def dedup_postings(postings: list[JobPosting]) -> list[JobPosting]:
     return deduped
 
 
+_HOST_STOPWORDS = {
+    "www", "jobs", "careers", "career", "job", "apply", "us", "en",
+    "com", "org", "net", "io", "co", "gov", "edu",
+}
+
+
+def _infer_company_from_url(url: str) -> str:
+    """Tavily's search results don't include a company field, so this is
+    the best zero-cost signal available: the site's own domain name is
+    usually the company or the job board, which still beats a blank
+    field in the UI."""
+    host = urlsplit(url).netloc.lower()
+    parts = [p for p in host.split(".") if p and p not in _HOST_STOPWORDS]
+    if not parts:
+        return ""
+    return parts[0].replace("-", " ").title()
+
+
+# General web search on a "<title> jobs" query pulls in a lot of content
+# that isn't a job posting at all — courses, explainer articles, YouTube
+# videos, social media, framework docs. None of these have a real JD to
+# score against, so they just fail the ATS gate and dilute the results.
+# Company career pages live on arbitrary domains and can't be enumerated,
+# so this excludes known non-job content sources rather than trying to
+# allowlist job boards.
+_EXCLUDED_SEARCH_DOMAINS = [
+    "youtube.com", "instagram.com", "facebook.com", "twitter.com", "x.com",
+    "coursera.org", "udemy.com", "medium.com", "reddit.com", "wikipedia.org",
+    "tiktok.com", "pinterest.com", "quora.com",
+]
+
+
 def _tavily_search(query: str, max_results: int = 10) -> list[dict]:
     from tavily import TavilyClient
 
@@ -125,7 +158,12 @@ def _tavily_search(query: str, max_results: int = 10) -> list[dict]:
     if not settings.tavily_api_key:
         raise RuntimeError("TAVILY_API_KEY is not set")
     client = TavilyClient(api_key=settings.tavily_api_key)
-    resp = client.search(query=query, max_results=max_results, search_depth="advanced")
+    resp = client.search(
+        query=query,
+        max_results=max_results,
+        search_depth="advanced",
+        exclude_domains=_EXCLUDED_SEARCH_DOMAINS,
+    )
     return resp.get("results", [])
 
 
@@ -137,12 +175,13 @@ def search_jobs(resume: ParsedResume, max_results_per_query: int = 10) -> list[J
 
     for query in queries:
         for result in _tavily_search(query, max_results=max_results_per_query):
+            url = result.get("url", "")
             raw_postings.append(
                 JobPosting(
-                    source_url=result.get("url", ""),
-                    canonical_url=canonicalize_url(result.get("url", "")),
+                    source_url=url,
+                    canonical_url=canonicalize_url(url),
                     jd_text=result.get("content", ""),
-                    company=result.get("company", "") or "",
+                    company=result.get("company") or _infer_company_from_url(url),
                     title=result.get("title", "") or query,
                 )
             )

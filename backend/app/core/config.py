@@ -14,6 +14,11 @@ class Settings(BaseSettings):
     llm_provider: str = "openai"  # "openai" | "gemini"
     openai_model: str = "gpt-4o-mini"
     gemini_model: str = "gemini-1.5-flash"
+    # Comma-separated models to try, in order, if gemini_model hits a
+    # quota/rate-limit error — each Gemini model has its own separate
+    # free-tier quota bucket, so falling back actually buys more headroom
+    # rather than hitting the same wall.
+    gemini_fallback_models: str = "gemini-2.5-flash,gemini-2.0-flash"
 
     # Search
     tavily_api_key: str | None = None
@@ -56,6 +61,14 @@ class Settings(BaseSettings):
         p = Path(self.jobpilot_data_dir)
         p.mkdir(parents=True, exist_ok=True)
         return p
+
+    @property
+    def gemini_model_candidates(self) -> list[str]:
+        fallbacks = [m.strip() for m in self.gemini_fallback_models.split(",") if m.strip()]
+        # Primary first, then fallbacks, de-duplicated while preserving order.
+        seen: set[str] = set()
+        ordered = [self.gemini_model, *fallbacks]
+        return [m for m in ordered if not (m in seen or seen.add(m))]
 
     @property
     def allowlist_hosts(self) -> set[str]:
