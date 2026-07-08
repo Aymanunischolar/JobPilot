@@ -23,9 +23,11 @@ input first (§6.1).
 
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime, timezone
-from typing import Optional, TypedDict
+from typing import Any, AsyncIterator, Optional, TypedDict
 
+from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, START, StateGraph
 
@@ -33,6 +35,7 @@ from app.agents.application import submit_application
 from app.agents.ats_scorer import score_resume
 from app.agents.faithfulness import check_faithfulness
 from app.agents.job_search import search_jobs
+from app.core.config import get_settings
 from app.agents.resume_parser import parse_resume
 from app.agents.tailor import tailor_resume
 from app.core.tracing import agent_span, persist_trace
@@ -271,6 +274,103 @@ def route_after_qa(state: GraphState) -> str:
 # --------------------------------------------------------------------------
 
 
+class _ThreadedCheckpointSaver(BaseCheckpointSaver):
+    """Adapts a sync checkpoint saver (e.g. ``PostgresSaver``) so it can
+    be driven by LangGraph's async graph execution (``ainvoke`` /
+    ``aget_state`` / ``aupdate_state``), by running each sync call in a
+    worker thread via ``asyncio.to_thread``.
+
+    This exists instead of using ``AsyncPostgresSaver`` directly because
+    psycopg's async mode requires Python's SelectorEventLoop, while
+    Playwright's async API (used by the Application Agent, §4.6) requires
+    ProactorEventLoop for subprocess support on Windows — the two cannot
+    coexist in the same event loop. Running the *sync* psycopg driver in
+    a thread pool sidesteps that conflict entirely, since sync psycopg
+    doesn't care which event loop policy is active.
+    """
+
+    def __init__(self, sync_saver):
+        super().__init__(serde=sync_saver.serde)
+        self._saver = sync_saver
+
+    def get_tuple(self, config):
+        return self._saver.get_tuple(config)
+
+    def list(self, config, *, filter=None, before=None, limit=None):
+        return self._saver.list(config, filter=filter, before=before, limit=limit)
+
+    def put(self, config, checkpoint, metadata, new_versions):
+        return self._saver.put(config, checkpoint, metadata, new_versions)
+
+    def put_writes(self, config, writes, task_id, task_path=""):
+        return self._saver.put_writes(config, writes, task_id, task_path)
+
+    def get_next_version(self, current, channel):
+        return self._saver.get_next_version(current, channel)
+
+    async def aget_tuple(self, config):
+        return await asyncio.to_thread(self._saver.get_tuple, config)
+
+    async def alist(self, config, *, filter=None, before=None, limit=None) -> AsyncIterator[Any]:
+        def _collect():
+            return list(self._saver.list(config, filter=filter, before=before, limit=limit))
+
+        for item in await asyncio.to_thread(_collect):
+            yield item
+
+    async def aput(self, config, checkpoint, metadata, new_versions):
+        return await asyncio.to_thread(self._saver.put, config, checkpoint, metadata, new_versions)
+
+    async def aput_writes(self, config, writes, task_id, task_path=""):
+        await asyncio.to_thread(self._saver.put_writes, config, writes, task_id, task_path)
+
+
+_checkpoint_pool = None  # psycopg_pool.ConnectionPool, when Postgres-backed
+
+
+def _build_checkpointer() -> BaseCheckpointSaver:
+    """Postgres-backed when DATABASE_URL is set, so the Human Approval
+    Gate's paused state survives a process restart; otherwise an
+    in-memory checkpointer (fine for local/demo use — state just doesn't
+    outlive the process).
+
+    Uses the *sync* PostgresSaver, not the async variant, deliberately:
+    psycopg's async mode requires Python's SelectorEventLoop, but
+    Playwright's async API (Application Agent, §4.6) requires
+    ProactorEventLoop for subprocess support on Windows — the two can't
+    coexist in one event loop. LangGraph runs sync checkpointers through
+    a thread executor automatically when the graph is invoked via
+    ``ainvoke``/``aget_state``/``aupdate_state``, so this is transparent
+    to the rest of the graph.
+    """
+    global _checkpoint_pool
+    settings = get_settings()
+    if not settings.checkpoint_dsn:
+        return MemorySaver()
+
+    from langgraph.checkpoint.postgres import PostgresSaver
+    from psycopg_pool import ConnectionPool
+
+    _checkpoint_pool = ConnectionPool(
+        conninfo=settings.checkpoint_dsn,
+        max_size=10,
+        kwargs={"autocommit": True, "prepare_threshold": 0},
+    )
+    _checkpoint_pool.wait(timeout=10)
+    saver = PostgresSaver(_checkpoint_pool)
+    saver.setup()  # idempotent — safe to call on every process start
+    return _ThreadedCheckpointSaver(saver)
+
+
+def close_checkpoint_pool() -> None:
+    """Call on application shutdown to release pooled Postgres
+    connections cleanly."""
+    global _checkpoint_pool
+    if _checkpoint_pool is not None:
+        _checkpoint_pool.close()
+        _checkpoint_pool = None
+
+
 def build_graph():
     graph = StateGraph(GraphState)
 
@@ -310,7 +410,7 @@ def build_graph():
     graph.add_edge("human_approval", "application_agent")
     graph.add_edge("application_agent", END)
 
-    checkpointer = MemorySaver()
+    checkpointer = _build_checkpointer()
     # The Application Agent has exactly one incoming edge, from the Human
     # Approval Gate, and the graph always interrupts immediately before it
     # — so nothing reaches it without a resume triggered by a recorded
@@ -361,19 +461,25 @@ async def resume_after_approval(thread_id: str) -> JobState:
     return job_state
 
 
-def get_state_snapshot(thread_id: str) -> JobState | None:
+async def get_state_snapshot(thread_id: str) -> JobState | None:
     """Read the current JobState for a session without resuming the
     graph — used by the API to show postings/ATS results/tailored drafts
-    while the graph is paused at the Human Approval Gate."""
+    while the graph is paused at the Human Approval Gate.
+
+    Uses the graph's async state accessor (``aget_state``) rather than
+    the sync ``get_state`` — when Postgres-backed, the checkpoint read is
+    a blocking network call, and this may be invoked from an async
+    FastAPI route handler where blocking the event loop is not
+    acceptable (§7: end-to-end latency target < 60s)."""
     graph = get_graph()
     config = {"configurable": {"thread_id": thread_id}}
-    snapshot = graph.get_state(config)
+    snapshot = await graph.aget_state(config)
     if not snapshot or not snapshot.values:
         return None
     return snapshot.values["job_state"]
 
 
-def record_approval(
+async def record_approval(
     thread_id: str,
     posting_id: str,
     decision: ApprovalDecision,
@@ -386,7 +492,7 @@ def record_approval(
     passed through here (§6.1)."""
     graph = get_graph()
     config = {"configurable": {"thread_id": thread_id}}
-    snapshot = graph.get_state(config)
+    snapshot = await graph.aget_state(config)
     if not snapshot or not snapshot.values:
         raise ValueError(f"No paused session found for thread_id={thread_id!r}")
 
@@ -397,5 +503,5 @@ def record_approval(
         approved_by=approved_by,
         decided_at=datetime.now(timezone.utc),
     )
-    graph.update_state(config, {"job_state": job_state})
+    await graph.aupdate_state(config, {"job_state": job_state})
     return job_state

@@ -26,6 +26,15 @@ class Settings(BaseSettings):
     # Gates (§4.4, §6)
     ats_pass_threshold: float = 70.0
 
+    # Optional durable checkpoint store for the LangGraph Manager Agent —
+    # when set, the Human Approval Gate's paused state survives process
+    # restarts instead of living only in memory. When unset, the graph
+    # falls back to an in-memory checkpointer (fine for local/demo use).
+    # Tables are created in database_schema, not "public", so this can
+    # safely point at a database shared with an unrelated app.
+    database_url: str | None = None
+    database_schema: str = "jobpilot"
+
     # Local, private data store — resumes and personal data are never sent
     # to third parties beyond the LLM/search providers required for the
     # current step (§6.4).
@@ -46,6 +55,17 @@ class Settings(BaseSettings):
     @property
     def allowlist_hosts(self) -> set[str]:
         return {h.strip().lower() for h in self.auto_submit_allowlist.split(",") if h.strip()}
+
+    @property
+    def checkpoint_dsn(self) -> str | None:
+        """``database_url`` with a ``search_path`` pinned to
+        ``database_schema`` — every LangGraph checkpoint table this app
+        creates or touches lives in that schema, never in ``public``,
+        so this can safely point at a database another app also uses."""
+        if not self.database_url:
+            return None
+        sep = "&" if "?" in self.database_url else "?"
+        return f"{self.database_url}{sep}options=-csearch_path%3D{self.database_schema}"
 
 
 @lru_cache

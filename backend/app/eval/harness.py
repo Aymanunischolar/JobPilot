@@ -106,7 +106,7 @@ def eval_faithfulness() -> dict:
     fixtures = _load("faithfulness.json")
     passed = 0
     matched_expectation = 0
-    skipped_llm = 0
+    semantic_judge_unavailable = 0
 
     for fx in fixtures:
         resume = ParsedResume.model_validate(fx["resume"])
@@ -114,7 +114,7 @@ def eval_faithfulness() -> dict:
         checked = check_faithfulness(resume, tailored)
 
         if "LLM error" in "; ".join(checked.faithfulness_violations):
-            skipped_llm += 1
+            semantic_judge_unavailable += 1
 
         if checked.faithfulness_status.value == fx["expected_status"]:
             matched_expectation += 1
@@ -129,7 +129,7 @@ def eval_faithfulness() -> dict:
         "matched_expected_label_pct": round(100 * matched_expectation / len(fixtures), 1)
         if fixtures
         else 0.0,
-        "skipped_no_llm_key": skipped_llm,
+        "semantic_judge_unavailable": semantic_judge_unavailable,  # LLM call failed (no key, quota, network, etc.)
     }
 
 

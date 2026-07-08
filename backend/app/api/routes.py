@@ -63,7 +63,7 @@ async def upload_resume(file: UploadFile = File(...)) -> JobState:
 
 @router.get("/sessions/{session_id}", response_model=JobState)
 async def get_session(session_id: str) -> JobState:
-    job_state = get_state_snapshot(session_id)
+    job_state = await get_state_snapshot(session_id)
     if job_state is None:
         raise HTTPException(status_code=404, detail="Session not found")
     return job_state
@@ -75,7 +75,7 @@ async def submit_approval(session_id: str, body: ApprovalRequest) -> JobState:
     APPROVED decision moves that posting toward the Application Agent;
     REJECTED is recorded and the posting goes no further."""
     try:
-        record_approval(
+        await record_approval(
             thread_id=session_id,
             posting_id=body.posting_id,
             decision=body.decision,

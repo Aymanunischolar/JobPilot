@@ -76,6 +76,20 @@ Parser    (Tavily)     (score + keyword gap, gate >= 70%)
   (`.jobpilot_data/`, gitignored); nothing is sent to third parties beyond
   the LLM/search providers required for the current step.
 
+### Durable checkpointing (optional)
+
+The Human Approval Gate can leave a session paused for an arbitrary
+amount of time — a human has to actually look at it. By default that
+paused state lives in memory and doesn't survive a process restart. Set
+`DATABASE_URL` (any Postgres, e.g. Neon) to switch to a durable,
+Postgres-backed checkpointer instead — LangGraph's tables are created in
+their own schema (`DATABASE_SCHEMA`, default `jobpilot`), never in
+`public`, so this is safe to point at a database another app already
+uses. Uses the sync `PostgresSaver` wrapped in a thread-executor adapter
+rather than the async driver, deliberately — psycopg's async mode needs
+Python's SelectorEventLoop, which conflicts with Playwright's
+ProactorEventLoop requirement for subprocess support on Windows.
+
 ## Project layout
 
 ```

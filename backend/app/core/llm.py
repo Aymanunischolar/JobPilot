@@ -49,15 +49,21 @@ def _call_openai(system: str, user: str) -> str:
 
     settings = get_settings()
     client = OpenAI(api_key=settings.openai_api_key)
-    resp = client.chat.completions.create(
-        model=settings.openai_model,
-        messages=[
-            {"role": "system", "content": system},
-            {"role": "user", "content": user},
-        ],
-        temperature=0.2,
-        response_format={"type": "json_object"},
-    )
+    try:
+        resp = client.chat.completions.create(
+            model=settings.openai_model,
+            messages=[
+                {"role": "system", "content": system},
+                {"role": "user", "content": user},
+            ],
+            temperature=0.2,
+            response_format={"type": "json_object"},
+        )
+    except Exception as exc:
+        # Translate every OpenAI SDK failure (rate limits, timeouts,
+        # transient 5xxs, auth errors) into the one exception type every
+        # call site's graceful-degradation fallback actually catches.
+        raise LLMError(f"OpenAI call failed: {exc}") from exc
     return resp.choices[0].message.content or ""
 
 
@@ -76,7 +82,14 @@ def _call_gemini(system: str, user: str) -> str:
         system_instruction=system,
         generation_config={"response_mime_type": "application/json", "temperature": 0.2},
     )
-    resp = model.generate_content(user)
+    try:
+        resp = model.generate_content(user)
+    except Exception as exc:
+        # Same translation as _call_openai — e.g. google.api_core's
+        # ResourceExhausted (quota) is a real, common failure mode on
+        # Gemini's free tier and must degrade gracefully, not crash the
+        # whole graph node processing a batch of postings.
+        raise LLMError(f"Gemini call failed: {exc}") from exc
     return resp.text or ""
 
 

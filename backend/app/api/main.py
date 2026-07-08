@@ -1,7 +1,17 @@
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.agents.manager import close_checkpoint_pool
 from app.api.routes import router
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    yield
+    close_checkpoint_pool()
+
 
 app = FastAPI(
     title="JobPilot",
@@ -11,6 +21,7 @@ app = FastAPI(
         "external action."
     ),
     version="1.0.0",
+    lifespan=lifespan,
 )
 
 app.add_middleware(
