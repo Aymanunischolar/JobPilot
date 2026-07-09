@@ -8,6 +8,10 @@ Full design rationale lives in
 [`docs/JobPilot_Architecture_Document.docx`](docs/JobPilot_Architecture_Document.docx).
 This README covers what's implemented and how to run it.
 
+**Live**: [job-pilot-app.vercel.app](https://job-pilot-app.vercel.app) (frontend, Vercel) ·
+backend on Render's free tier — the first request after idling can take
+30-60s while the instance cold-starts.
+
 ## Why this exists
 
 Job seekers manually repeat four slow steps for every posting: find the
