@@ -1,4 +1,4 @@
-from app.agents.ats_scorer import score_resume
+from app.agents.ats_scorer import score_resume_heuristic as score_resume
 from app.schemas.models import Bullet, JobPosting, ParsedResume, RoleExperience
 
 
@@ -63,3 +63,26 @@ def test_missing_keywords_populated_for_weak_match():
 def test_signal_breakdown_present():
     result = score_resume(_strong_match_resume(), _backend_posting())
     assert result.signal_breakdown.keyword_coverage >= 0
+
+
+def test_heuristic_rationale_is_never_empty_without_llm():
+    # score_resume_heuristic makes no LLM call, so a real (if generic)
+    # rationale must already be present before the batch upgrade step
+    # ever runs — a batch failure should never leave a blank rationale.
+    result = score_resume(_weak_match_resume(), _backend_posting())
+    assert result.fit_rationale.strip() != ""
+
+
+def test_generate_rationales_batch_never_crashes_or_blanks_a_result():
+    from app.agents.ats_scorer import generate_rationales_batch
+
+    posting = _backend_posting()
+    result = score_resume(_strong_match_resume(), posting)
+    results = {posting.id: result}
+
+    # Whether or not an LLM key is configured in this environment, this
+    # must never raise, and every posting must end up with a non-empty
+    # rationale — either the heuristic fallback (already set) or a real
+    # one from the batch call.
+    generate_rationales_batch(_strong_match_resume(), [posting], results)
+    assert results[posting.id].fit_rationale.strip() != ""

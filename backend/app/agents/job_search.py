@@ -12,6 +12,7 @@ aggregators only surfaces once.
 from __future__ import annotations
 
 import re
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from urllib.parse import urlsplit
 
 import numpy as np
@@ -155,8 +156,6 @@ def _tavily_search(query: str, max_results: int = 10) -> list[dict]:
     from tavily import TavilyClient
 
     settings = get_settings()
-    if not settings.tavily_api_key:
-        raise RuntimeError("TAVILY_API_KEY is not set")
     client = TavilyClient(api_key=settings.tavily_api_key)
     resp = client.search(
         query=query,
@@ -170,21 +169,40 @@ def _tavily_search(query: str, max_results: int = 10) -> list[dict]:
 def search_jobs(resume: ParsedResume, max_results_per_query: int = 10) -> list[JobPosting]:
     """Full Job Search Agent pipeline: build queries -> call Tavily ->
     parse into JobPosting -> dedup -> rank."""
+    settings = get_settings()
+    if not settings.tavily_api_key:
+        # A missing key is a config problem, not "no results found" — it
+        # must surface clearly (routes.py maps RuntimeError to a 503),
+        # not get silently swallowed by the per-query error handling below.
+        raise RuntimeError("TAVILY_API_KEY is not set")
+
     queries = build_queries(resume)
     raw_postings: list[JobPosting] = []
 
-    for query in queries:
-        for result in _tavily_search(query, max_results=max_results_per_query):
-            url = result.get("url", "")
-            raw_postings.append(
-                JobPosting(
-                    source_url=url,
-                    canonical_url=canonicalize_url(url),
-                    jd_text=result.get("content", ""),
-                    company=result.get("company") or _infer_company_from_url(url),
-                    title=result.get("title", "") or query,
+    # Each query is an independent network round-trip to Tavily — running
+    # them concurrently instead of one-after-another turns N sequential
+    # round-trips into roughly the cost of the slowest one.
+    with ThreadPoolExecutor(max_workers=max(1, len(queries))) as pool:
+        futures = {pool.submit(_tavily_search, q, max_results_per_query): q for q in queries}
+        for future in as_completed(futures):
+            query = futures[future]
+            try:
+                query_results = future.result()
+            except Exception:
+                # One query failing (rate limit, transient network error)
+                # shouldn't sink results from the others.
+                continue
+            for result in query_results:
+                url = result.get("url", "")
+                raw_postings.append(
+                    JobPosting(
+                        source_url=url,
+                        canonical_url=canonicalize_url(url),
+                        jd_text=result.get("content", ""),
+                        company=result.get("company") or _infer_company_from_url(url),
+                        title=result.get("title", "") or query,
+                    )
                 )
-            )
 
     deduped = dedup_postings(raw_postings)
     return rank_postings(resume, deduped)

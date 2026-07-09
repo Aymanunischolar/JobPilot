@@ -22,7 +22,7 @@ import sys
 from pathlib import Path
 from statistics import mean
 
-from app.agents.ats_scorer import score_resume
+from app.agents.ats_scorer import score_resume_heuristic
 from app.agents.faithfulness import check_faithfulness
 from app.agents.job_search import rank_postings
 from app.schemas.models import JobPosting, ParsedResume, TailoredResume
@@ -45,7 +45,7 @@ def eval_ats_calibration() -> dict:
     for fx in fixtures:
         resume = ParsedResume.model_validate(fx["resume"])
         posting = JobPosting.model_validate(fx["posting"])
-        result = score_resume(resume, posting)
+        result = score_resume_heuristic(resume, posting)
         errors.append(abs(result.score - fx["reference_score"]))
 
     within_tolerance = sum(1 for e in errors if e <= 7.0)

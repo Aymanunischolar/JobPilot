@@ -15,7 +15,7 @@ from __future__ import annotations
 import re
 from datetime import datetime
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.core.config import get_settings
 from app.core.llm import LLMError, complete_json
@@ -130,38 +130,19 @@ def _formatting_compatibility(resume: ParsedResume) -> float:
     return min(1.0, score) or 0.5
 
 
-class _RationaleOut(BaseModel):
-    fit_rationale: str
-
-
-def _generate_rationale(
-    resume: ParsedResume, posting: JobPosting, score: float, missing_keywords: list[str]
-) -> str:
-    system = (
-        "You are an ATS analyst. Given a candidate summary, a job posting, "
-        "a computed match score, and missing keywords, write a 2-3 sentence "
-        "fit_rationale explaining the score in plain language. Return JSON: "
-        '{"fit_rationale": str}'
+def _fallback_rationale(posting: JobPosting, score: float, missing_keywords: list[str]) -> str:
+    return (
+        f"Scored {score:.0f}/100 against '{posting.title}'. "
+        f"Missing {len(missing_keywords)} keyword(s) the JD emphasizes: "
+        f"{', '.join(missing_keywords[:8]) or 'none'}."
     )
-    user = (
-        f"Score: {score:.1f}/100\n"
-        f"Missing keywords: {', '.join(missing_keywords[:15])}\n"
-        f"Candidate top skills: {', '.join(resume.skills[:10])}\n"
-        f"Job title: {posting.title} at {posting.company}\n"
-        f"JD excerpt: {posting.jd_text[:1500]}"
-    )
-    try:
-        out = complete_json(system, user, _RationaleOut)
-        return out.fit_rationale
-    except LLMError:
-        return (
-            f"Scored {score:.0f}/100 against '{posting.title}'. "
-            f"Missing {len(missing_keywords)} keyword(s) the JD emphasizes: "
-            f"{', '.join(missing_keywords[:8]) or 'none'}."
-        )
 
 
-def score_resume(resume: ParsedResume, posting: JobPosting) -> ATSResult:
+def score_resume_heuristic(resume: ParsedResume, posting: JobPosting) -> ATSResult:
+    """The deterministic half of ATS scoring — no LLM call, so this is
+    fast and free to run for every posting. ``fit_rationale`` starts as
+    the heuristic fallback string and is upgraded in place by
+    ``generate_rationales_batch`` for postings worth explaining well."""
     settings = get_settings()
 
     keyword_coverage, missing_keywords = _keyword_coverage(resume, posting.jd_text)
@@ -186,12 +167,68 @@ def score_resume(resume: ParsedResume, posting: JobPosting) -> ATSResult:
         + formatting * _WEIGHTS["formatting_compatibility"]
     ) * 100
 
-    rationale = _generate_rationale(resume, posting, score, missing_keywords)
-
     return ATSResult(
         score=round(score, 2),
         missing_keywords=missing_keywords,
-        fit_rationale=rationale,
+        fit_rationale=_fallback_rationale(posting, score, missing_keywords),
         passed_gate=score >= settings.ats_pass_threshold,
         signal_breakdown=breakdown,
     )
+
+
+class _RationaleItem(BaseModel):
+    posting_id: str
+    fit_rationale: str
+
+
+class _RationaleBatchOut(BaseModel):
+    results: list[_RationaleItem] = Field(default_factory=list)
+
+
+_RATIONALE_BATCH_SYSTEM_PROMPT = """You are an ATS analyst. You'll be given
+a candidate summary and a list of job postings, each with its computed
+match score and missing keywords. For EACH posting, write a 2-3 sentence
+fit_rationale explaining the score in plain language — reference the
+specific role/company and the specific missing keywords, don't write a
+generic template.
+
+Return ONLY JSON: {"results": [{"posting_id": str, "fit_rationale": str}]}
+One entry per posting_id given, in any order."""
+
+
+def generate_rationales_batch(
+    resume: ParsedResume, postings: list[JobPosting], results: dict[str, ATSResult]
+) -> None:
+    """Fills in a real fit_rationale for a batch of postings with ONE LLM
+    call instead of one call per posting — the dominant cost in a run
+    scoring a couple dozen postings is round-trips, not tokens, so
+    batching is the highest-leverage latency fix available here. Mutates
+    ``results`` in place; postings not covered by the batch are left with
+    their heuristic fallback string (already set by
+    ``score_resume_heuristic``), so a batch failure degrades gracefully
+    rather than blocking the pipeline."""
+    if not postings:
+        return
+
+    listing = "\n\n".join(
+        f"posting_id: {p.id}\n"
+        f"Score: {results[p.id].score:.1f}/100\n"
+        f"Missing keywords: {', '.join(results[p.id].missing_keywords[:15])}\n"
+        f"Job title: {p.title} at {p.company}\n"
+        f"JD excerpt: {p.jd_text[:800]}"
+        for p in postings
+        if p.id in results
+    )
+    user = (
+        f"Candidate top skills: {', '.join(resume.skills[:10])}\n\n"
+        f"POSTINGS:\n{listing}"
+    )
+
+    try:
+        out = complete_json(_RATIONALE_BATCH_SYSTEM_PROMPT, user, _RationaleBatchOut)
+    except LLMError:
+        return  # every posting already has its heuristic fallback rationale
+
+    for item in out.results:
+        if item.posting_id in results:
+            results[item.posting_id].fit_rationale = item.fit_rationale

@@ -44,7 +44,7 @@ _retry_transient_pg = retry(
 )
 
 from app.agents.application import submit_application
-from app.agents.ats_scorer import score_resume
+from app.agents.ats_scorer import generate_rationales_batch, score_resume_heuristic
 from app.agents.faithfulness import check_faithfulness
 from app.agents.job_search import search_jobs
 from app.core.config import get_settings
@@ -63,6 +63,12 @@ from app.schemas.models import (
 MAX_SEARCH_RETRIES = 1
 MAX_TAILOR_RETRIES = 2
 ATS_BORDERLINE_BAND = 5.0  # points either side of the threshold
+# ATS scoring's dominant cost is LLM round-trips for the fit rationale.
+# Job Search already ranks postings by relevance before this runs, so
+# capping to the top candidates bounds pipeline latency without losing
+# the postings a candidate would actually care about — the rest still
+# show up in the results list, just without a full ATS breakdown.
+MAX_POSTINGS_TO_SCORE = 15
 
 
 class GraphState(TypedDict):
@@ -143,11 +149,17 @@ def job_search_node(state: GraphState) -> dict:
 
 def ats_scorer_node(state: GraphState) -> dict:
     job_state = state["job_state"]
-    for posting in job_state.postings:
-        if posting.id in job_state.ats_results:
-            continue
+
+    candidates = sorted(job_state.postings, key=lambda p: p.relevance_score, reverse=True)
+    to_score = [
+        p for p in candidates[:MAX_POSTINGS_TO_SCORE] if p.id not in job_state.ats_results
+    ]
+
+    # Pass 1: heuristic scoring — fast, no I/O, one span per posting for
+    # per-posting traceability.
+    for posting in to_score:
         with agent_span(job_state, "ats_scorer", {"posting_id": posting.id}) as rec:
-            result = score_resume(job_state.parsed_resume, posting)
+            result = score_resume_heuristic(job_state.parsed_resume, posting)
             job_state.ats_results[posting.id] = result
             rec["output"] = result.model_dump()
             rec["decision"] = "pass" if result.passed_gate else "reject"
@@ -157,6 +169,16 @@ def ats_scorer_node(state: GraphState) -> dict:
                 _add_escalation(
                     job_state, f"borderline ATS score ({result.score:.1f}) for posting {posting.id}"
                 )
+
+    # Pass 2: one batched LLM call upgrades every heuristic-fallback
+    # rationale to a real one, instead of one round-trip per posting —
+    # the dominant latency cost in a run scoring a couple dozen postings.
+    if to_score:
+        with agent_span(job_state, "ats_scorer_rationale_batch", {"count": len(to_score)}) as rec:
+            generate_rationales_batch(job_state.parsed_resume, to_score, job_state.ats_results)
+            rec["output"] = {p.id: job_state.ats_results[p.id].fit_rationale for p in to_score}
+            rec["decision"] = "ok"
+            rec["rationale"] = f"generated rationale for {len(to_score)} postings in one call"
 
     job_state.current_step = "ats_scored"
     return {"job_state": job_state}

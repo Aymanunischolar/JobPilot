@@ -9,6 +9,7 @@ gate into the Application Agent (§6.1).
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import uuid
 from pathlib import Path
@@ -26,6 +27,14 @@ logger = logging.getLogger("jobpilot")
 router = APIRouter()
 
 _MAX_RESUME_BYTES = 10 * 1024 * 1024  # 10MB — generous for a resume, cheap to enforce
+
+# Generous but bounded: a cold-started free-tier instance plus a full
+# search -> score -> tailor -> faithfulness run for ~15 postings should
+# comfortably finish well under this. Past it, something is genuinely
+# stuck (not just slow), so failing predictably with a 504 beats leaving
+# the client hanging until the platform kills the connection on its own.
+_PIPELINE_TIMEOUT_SECONDS = 110
+_APPROVAL_TIMEOUT_SECONDS = 60
 
 
 class ApprovalRequest(BaseModel):
@@ -58,12 +67,24 @@ async def upload_resume(file: UploadFile = File(...)) -> JobState:
     resume_path.write_bytes(content)
 
     try:
-        return await run_pipeline(
-            resume_bytes=content,
-            resume_filename=file.filename,
-            thread_id=session_id,
-            resume_file_path=str(resume_path),
+        return await asyncio.wait_for(
+            run_pipeline(
+                resume_bytes=content,
+                resume_filename=file.filename,
+                thread_id=session_id,
+                resume_file_path=str(resume_path),
+            ),
+            timeout=_PIPELINE_TIMEOUT_SECONDS,
         )
+    except asyncio.TimeoutError as exc:
+        logger.warning("Pipeline timed out for session=%s", session_id)
+        raise HTTPException(
+            status_code=504,
+            detail=(
+                f"Resume processing is taking longer than expected (session {session_id}). "
+                "Try again — a subsequent run often lands on a warmer instance and faster LLM responses."
+            ),
+        ) from exc
     except RuntimeError as exc:
         # Missing/misconfigured provider keys (job_search.py, ats_scorer.py
         # LLM fallbacks) surface here as RuntimeError — a config problem,
@@ -106,7 +127,18 @@ async def submit_approval(session_id: str, body: ApprovalRequest) -> JobState:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
     try:
-        return await resume_after_approval(session_id)
+        return await asyncio.wait_for(
+            resume_after_approval(session_id), timeout=_APPROVAL_TIMEOUT_SECONDS
+        )
+    except asyncio.TimeoutError as exc:
+        logger.warning("Resume-after-approval timed out for session=%s", session_id)
+        raise HTTPException(
+            status_code=504,
+            detail=(
+                f"Your approval was recorded, but applying it is taking longer than expected "
+                f"(session {session_id}). Refresh the session to check status."
+            ),
+        ) from exc
     except Exception as exc:  # noqa: BLE001
         logger.exception("Resume-after-approval failed for session=%s", session_id)
         raise HTTPException(
