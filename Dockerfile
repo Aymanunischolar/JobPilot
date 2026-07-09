@@ -1,4 +1,8 @@
-FROM python:3.12-slim AS base
+# Microsoft's official Playwright image ships Chromium + all matching OS
+# deps pre-installed and version-pinned for this exact Playwright release —
+# `playwright install --with-deps` on a generic python:slim image is
+# fragile across Debian releases (font package names drift and break it).
+FROM mcr.microsoft.com/playwright/python:v1.49.0-noble AS base
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
@@ -7,8 +11,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 WORKDIR /app
 
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt \
-    && playwright install --with-deps chromium
+RUN pip install --no-cache-dir -r requirements.txt
 
 COPY backend/ backend/
 
