@@ -1,6 +1,10 @@
 import type { ApprovalDecision, Channel, JobState, RunSummary } from "../types";
 
-const BASE = "/api";
+// In local dev, Vite proxies /api to the backend (see vite.config.ts).
+// In a static deployment (e.g. Vercel) there's no proxy, so the backend's
+// full URL must be supplied via VITE_API_BASE_URL at build time.
+const API_ROOT = import.meta.env.VITE_API_BASE_URL ?? "";
+const BASE = `${API_ROOT}/api`;
 
 export class ApiError extends Error {
   status: number;
