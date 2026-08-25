@@ -1,5 +1,7 @@
 # JobPilot
 
+[![CI](https://github.com/Aymanunischolar/JobPilot/actions/workflows/ci.yml/badge.svg)](https://github.com/Aymanunischolar/JobPilot/actions/workflows/ci.yml)
+
 An autonomous multi-agent system for job discovery, ATS scoring, and resume
 tailoring — with a human approval gate before any application ever leaves
 the system.
@@ -11,6 +13,17 @@ This README covers what's implemented and how to run it.
 **Live**: [job-pilot-app.vercel.app](https://job-pilot-app.vercel.app) (frontend, Vercel) ·
 backend on Render's free tier — the first request after idling can take
 30-60s while the instance cold-starts.
+
+## Demo
+
+<!-- TODO(screenshot): no screenshot or GIF exists in the repo yet. Add one at
+     docs/demo-screenshot.png (or docs/demo.gif), then replace this comment
+     and the line below with: ![JobPilot results screen](docs/demo-screenshot.png) -->
+
+*(Screenshot/GIF coming soon — try the live app in the meantime.)*
+
+Try it now: [job-pilot-app.vercel.app](https://job-pilot-app.vercel.app) — the
+landing page has a "Try a sample" resume link, no upload or signup required.
 
 ## Why this exists
 
@@ -210,6 +223,10 @@ system is used against real postings.
 2. **Tailoring + guardrails** — Tailor Agent + faithfulness checker + Manager QA gate ✅
 3. **Human-gated automation** — Approval Gate + Application Agent (allow-listed auto-submit) ✅
 4. **Observability & polish** — tracing dashboard, demo video, hosted eval report
+
+## License
+
+[MIT](LICENSE)
 
 ## Author
 
